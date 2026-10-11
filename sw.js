@@ -1,6 +1,6 @@
 // 서비스 워커: 앱 파일을 캐시해 오프라인에서도 열리게 한다.
 // 파일을 고쳐 다시 배포할 때는 CACHE 이름의 숫자를 올린다.
-const CACHE = 'lunch-notebook-v3';
+const CACHE = 'lunch-notebook-v4';
 const ASSETS = [
   './',
   'index.html',
@@ -37,7 +37,8 @@ self.addEventListener('fetch', (event) => {
   event.respondWith((async () => {
     const cache = await caches.open(CACHE);
     const cached = await cache.match(req, { ignoreSearch: true });
-    const network = fetch(req).then((res) => {
+    // 브라우저의 10분짜리 임시 저장을 건너뛰고 서버에 새 파일이 있는지 매번 확인한다.
+    const network = fetch(req, { cache: 'no-cache' }).then((res) => {
       if (res && res.ok) cache.put(req, res.clone());
       return res;
     });
