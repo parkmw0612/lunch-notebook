@@ -188,10 +188,8 @@ function cardHtml(r, todayVisit) {
   return `
     <article class="card${visitedToday ? ' is-today' : ''}">
       <button class="card-body" data-act="edit" data-id="${esc(r.id)}" aria-label="${esc(r.name)} 수정">
-        <span class="card-cat"><span class="ico" aria-hidden="true">${CAT_ICON[r.category] || '🍽️'}</span>${esc(r.category)}</span>
-        <span class="card-menu">${esc(r.menu || r.name)}</span>
-        ${r.menu ? `<span class="card-name">${esc(r.name)}</span>` : ''}
-        ${r.tags.length ? `<span class="card-tags">${r.tags.map((t) => esc(tagLabel(t))).join(' ')}</span>` : ''}
+        <span class="card-menu">${esc(r.name)}</span>
+        ${r.menu ? `<span class="card-name">${esc(r.menu)}</span>` : ''}
         ${meta ? `<span class="card-meta">${esc(meta)}</span>` : ''}
         <span class="card-last${last ? '' : ' none'}">${last ? `${visitLabel(last.date)} 방문` : '방문 기록 없음'}</span>
         <span class="card-rate${rated ? '' : ' none'}">${rated
@@ -199,7 +197,7 @@ function cardHtml(r, todayVisit) {
           : '평가 없음'}</span>
       </button>
       ${visitedToday
-        ? `<button class="visit-btn done" data-act="unvisit" data-id="${esc(todayVisit.id)}">오늘 방문함 · 취소</button>`
+        ? `<button class="visit-btn done" data-act="unvisit" data-id="${esc(todayVisit.id)}">방문함 · 취소</button>`
         : `<button class="visit-btn" data-act="visit" data-id="${esc(r.id)}">오늘 여기 갔음</button>`}
     </article>`;
 }
@@ -269,12 +267,19 @@ async function doVisit(restaurantId) {
   if (!r) return;
   const prev = state.visits.find((v) => v.date === today());
   const prevRestaurant = prev ? byId(prev.restaurantId) : null;
-  await store.recordVisit(restaurantId, today());
+  const { visit } = await store.recordVisit(restaurantId, today());
   await refresh();
-  if (prevRestaurant && prevRestaurant.id !== restaurantId) {
-    toast(`오늘 방문을 '${prevRestaurant.name}'에서 '${r.name}'(으)로 바꿨습니다.`);
-  } else {
-    toast(`'${r.name}' 방문을 기록했습니다.`);
+  const replaced = prevRestaurant && prevRestaurant.id !== restaurantId;
+  // 기록하자마자 평가를 묻는다. '나중에'를 고르면 다음에 앱을 열 때 다시 묻는다.
+  if (ratingInProgress) return;
+  ratingInProgress = true;
+  try {
+    await rateVisit(visit, r, replaced
+      ? `오늘 방문을 '${prevRestaurant.name}'에서 바꿨습니다`
+      : '오늘 방문을 기록했습니다');
+  } finally {
+    ratingInProgress = false;
+    await refresh();
   }
 }
 
@@ -330,8 +335,8 @@ function openRandom(excludeId = null) {
     <p class="sheet-eyebrow">오늘은 여기 어때요</p>
     <div class="pick">
       <span class="pick-ico" aria-hidden="true">${CAT_ICON[r.category] || '🍽️'}</span>
-      <h2 class="pick-menu">${esc(r.menu || r.name)}</h2>
-      ${r.menu ? `<p class="pick-name">${esc(r.name)}</p>` : ''}
+      <h2 class="pick-menu">${esc(r.name)}</h2>
+      ${r.menu ? `<p class="pick-name">${esc(r.menu)}</p>` : ''}
       <p class="pick-tags">${esc(r.category)}${r.tags.length ? ` · ${r.tags.map((t) => esc(tagLabel(t))).join(' ')}` : ''}</p>
       <p class="pick-meta">${esc(meta)}</p>
     </div>
@@ -350,10 +355,10 @@ function openRandom(excludeId = null) {
 
 // ---------- 식후 평가 ----------
 
-function askRating(visit, r) {
+function askRating(visit, r, eyebrow) {
   return new Promise((resolve) => {
     const el = openSheet(`
-      <p class="sheet-eyebrow">${visitLabel(visit.date)} 다녀온 곳</p>
+      <p class="sheet-eyebrow">${esc(eyebrow || `${visitLabel(visit.date)} 다녀온 곳`)}</p>
       <h2 class="sheet-title">${esc(r.name)}, 어땠나요?</h2>
       ${r.menu ? `<p class="sheet-sub">${esc(r.menu)}</p>` : ''}
       <div class="rate-row">
@@ -361,7 +366,11 @@ function askRating(visit, r) {
         <button class="rate-btn ok" data-rate="ok"><span aria-hidden="true">🙂</span>보통</button>
         <button class="rate-btn never" data-rate="never"><span aria-hidden="true">🙅</span>다시 안 감</button>
       </div>
-      <div class="sheet-actions"><button class="btn btn-ghost" data-rate="skip">건너뛰기</button></div>
+      <div class="sheet-actions">
+        <button class="btn btn-line" data-rate="later">나중에</button>
+        <button class="btn btn-ghost" data-rate="skip">건너뛰기</button>
+      </div>
+      <p class="sheet-foot">'나중에'는 다음에 앱을 열 때 다시 묻고, '건너뛰기'는 이 방문을 평가하지 않습니다.</p>
     `, { dismissable: false });
     el.addEventListener('click', (e) => {
       const value = e.target.closest('[data-rate]')?.dataset.rate;
@@ -370,6 +379,22 @@ function askRating(visit, r) {
       resolve(value);
     });
   });
+}
+
+// 방문 1건의 평가를 받아 저장한다. '나중에'는 아무것도 저장하지 않아 다음에 다시 묻게 된다.
+async function rateVisit(visit, r, eyebrow) {
+  const value = await askRating(visit, r, eyebrow);
+  if (value === 'later') {
+    toast('다음에 앱을 열 때 다시 물어볼게요.');
+    return;
+  }
+  if (value === 'skip') {
+    await store.skipRating(visit.id);
+    return;
+  }
+  const reasons = value === 'never' ? await askReasons(r) : [];
+  await store.saveRating({ visitId: visit.id, restaurantId: r.id, value, reasons });
+  toast(`'${r.name}' 평가를 남겼습니다: ${RATING_LABEL[value]}`);
 }
 
 function askReasons(r) {
@@ -403,7 +428,7 @@ function askReasons(r) {
 
 let ratingInProgress = false;
 
-// 방문을 기록한 뒤 다음에 앱을 열 때, 평가하지 않은 방문을 오래된 것부터 묻는다.
+// 앱을 열 때, '나중에'로 미뤄 둔 방문을 오래된 것부터 다시 묻는다.
 async function promptPendingRatings() {
   if (ratingInProgress || sheetOpen() || !$('#screen').hidden) return;
   const pending = state.visits
@@ -416,14 +441,7 @@ async function promptPendingRatings() {
     for (const visit of pending) {
       const r = byId(visit.restaurantId);
       if (!r) continue;
-      const value = await askRating(visit, r);
-      if (value === 'skip') {
-        await store.skipRating(visit.id);
-        continue;
-      }
-      const reasons = value === 'never' ? await askReasons(r) : [];
-      await store.saveRating({ visitId: visit.id, restaurantId: r.id, value, reasons });
-      toast(`'${r.name}' 평가를 남겼습니다: ${RATING_LABEL[value]}`);
+      await rateVisit(visit, r);
     }
   } finally {
     ratingInProgress = false;

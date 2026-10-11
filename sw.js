@@ -1,6 +1,6 @@
 // 서비스 워커: 앱 파일을 캐시해 오프라인에서도 열리게 한다.
 // 파일을 고쳐 다시 배포할 때는 CACHE 이름의 숫자를 올린다.
-const CACHE = 'lunch-notebook-v1';
+const CACHE = 'lunch-notebook-v3';
 const ASSETS = [
   './',
   'index.html',
