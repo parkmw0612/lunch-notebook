@@ -66,6 +66,11 @@ function daysSince(dateStr) {
   return Math.round((to - from) / 86400000);
 }
 
+function dateLabel(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return y === new Date().getFullYear() ? `${m}월 ${d}일` : `${String(y).slice(2)}.${m}.${d}`;
+}
+
 function visitLabel(dateStr) {
   const n = daysSince(dateStr);
   if (n <= 0) return '오늘';
@@ -191,14 +196,13 @@ function cardHtml(r, todayVisit) {
         <span class="card-menu">${esc(r.name)}</span>
         ${r.menu ? `<span class="card-name">${esc(r.menu)}</span>` : ''}
         ${meta ? `<span class="card-meta">${esc(meta)}</span>` : ''}
-        <span class="card-last${last ? '' : ' none'}">${last ? `${visitLabel(last.date)} 방문` : '방문 기록 없음'}</span>
         <span class="card-rate${rated ? '' : ' none'}">${rated
           ? `<span class="good">좋았음 ${sum.good}</span><span class="ok">보통 ${sum.ok}</span><span class="never">안 감 ${sum.never}</span>`
           : '평가 없음'}</span>
       </button>
       ${visitedToday
-        ? `<button class="visit-btn done" data-act="unvisit" data-id="${esc(todayVisit.id)}">방문함 · 취소</button>`
-        : `<button class="visit-btn" data-act="visit" data-id="${esc(r.id)}">오늘 여기 갔음</button>`}
+        ? `<button class="visit-btn done" data-act="unvisit" data-id="${esc(todayVisit.id)}" aria-label="${esc(r.name)} 오늘 방문 취소">${dateLabel(last.date)} 방문</button>`
+        : `<button class="visit-btn${last ? '' : ' none'}" data-act="visit" data-id="${esc(r.id)}" aria-label="${esc(r.name)} 오늘 방문 기록">${last ? `${dateLabel(last.date)} 방문` : '방문 기록 없음'}</button>`}
     </article>`;
 }
 
@@ -281,6 +285,25 @@ async function doVisit(restaurantId) {
     ratingInProgress = false;
     await refresh();
   }
+}
+
+function confirmUndoVisit(visitId) {
+  const v = state.visits.find((x) => x.id === visitId);
+  const r = v && byId(v.restaurantId);
+  if (!r) return;
+  const el = openSheet(`
+    <h2 class="sheet-title">오늘 '${esc(r.name)}' 방문을 취소할까요?</h2>
+    <p class="sheet-sub">남긴 평가도 함께 지워집니다.</p>
+    <div class="sheet-actions">
+      <button class="btn btn-ghost" data-close>그대로 두기</button>
+      <button class="btn btn-danger solid" data-confirm>방문 취소</button>
+    </div>
+  `);
+  el.addEventListener('click', async (e) => {
+    if (!e.target.closest('[data-confirm]')) return;
+    closeSheet();
+    await undoVisit(visitId);
+  });
 }
 
 async function undoVisit(visitId) {
@@ -846,7 +869,7 @@ $('#app').addEventListener('click', async (e) => {
     case 'add': openForm(); break;
     case 'edit': { const r = byId(id); if (r) openForm(r); break; }
     case 'visit': await doVisit(id); break;
-    case 'unvisit': await undoVisit(id); break;
+    case 'unvisit': confirmUndoVisit(id); break;
     case 'random': openRandom(); break;
     case 'data': await openData(); break;
     case 'install-guide': openInstallGuide(); break;

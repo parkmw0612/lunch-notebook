@@ -360,3 +360,7 @@ input:focus { outline: none; border-color: var(--accent); }
 .card-last { margin-top: 4px; }
 .card-rate { font-size: 18px; gap: 0 10px; }
 .visit-btn { margin: 0 10px 10px; padding: 8px 6px; font-size: 20px; line-height: 1.2; }
+
+/* 방문 버튼: 마지막 방문일을 표시하고, 누르면 오늘 방문을 기록한다 */
+.visit-btn.none { color: var(--ink-3); }
+.card-rate { margin-top: 4px; }
